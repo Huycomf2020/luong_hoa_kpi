@@ -1,7 +1,12 @@
 {
   "name": "locninh-kpi",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
-  "scripts": {"test": "node tests/backend.test.cjs && node tests/ui.test.cjs"},
-  "devDependencies": {"jsdom": "26.1.0", "exceljs": "4.4.0"}
+  "scripts": {
+    "test": "node tests/backend.test.cjs && node tests/supabase-workflows.test.mjs && node tests/ui.test.cjs"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0",
+    "exceljs": "4.4.0"
+  }
 }

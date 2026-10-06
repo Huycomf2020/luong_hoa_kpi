@@ -1,0 +1,2 @@
+[functions.kpi-api]
+verify_jwt = false
