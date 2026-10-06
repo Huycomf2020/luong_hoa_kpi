@@ -9,7 +9,7 @@ const hex=(a:ArrayBuffer)=>Array.from(new Uint8Array(a),b=>b.toString(16).padSta
 const sha=async(s:string)=>hex(await crypto.subtle.digest('SHA-256',encoder.encode(s)));
 async function derive(digest:string,salt:string,iterations=600000){const key=await crypto.subtle.importKey('raw',encoder.encode(digest),'PBKDF2',false,['deriveBits']);return hex(await crypto.subtle.deriveBits({name:'PBKDF2',salt:encoder.encode(salt),iterations,hash:'SHA-256'},key,256));}
 function equal(a:string,b:string){if(a.length!==b.length)return false;let x=0;for(let i=0;i<a.length;i++)x|=a.charCodeAt(i)^b.charCodeAt(i);return x===0;}
-async function db(path:string,init:RequestInit={}){const r=await fetch(BASE+'/rest/v1/'+path,{...init,headers:{apikey:KEY,...(KEY.startsWith('sb_secret_')?{}:{Authorization:'Bearer '+KEY}),'Content-Type':'application/json',...(init.headers||{})},signal:AbortSignal.timeout(15000)});if(!r.ok){const e=await r.json().catch(()=>({}));throw Error(e.message==='KPI_CONFLICT'?'KPI_CONFLICT':e.message==='KPI_RATE_IP'?'Có quá nhiều yêu cầu. Thử lại sau một phút.':e.message==='KPI_RATE_ACCOUNT'?'Thử lại sau 15 phút hoặc liên hệ quản trị.':e.message==='KPI_SESSION_EXPIRED'?'Phiên không còn hợp lệ. Đăng nhập lại.':'Cơ sở dữ liệu chưa xử lý được yêu cầu.');}const text=await r.text();return text?JSON.parse(text):null;}
+async function db(path:string,init:RequestInit={}){const r=await fetch(BASE+'/rest/v1/'+path,{...init,headers:{apikey:KEY,...(KEY.startsWith('sb_secret_')?{}:{Authorization:'Bearer '+KEY}),'Content-Type':'application/json',...(init.headers||{})},signal:AbortSignal.timeout(15000)});if(!r.ok){const e=await r.json().catch(()=>({}));throw Error(e.message==='KPI_ADMIN_REQUIRED'?'Không có quyền quản trị tài khoản.':e.message==='KPI_RECOVERY_INVALID'?'Mã khôi phục sai, đã dùng hoặc hết hạn.':e.message==='KPI_CONFLICT'?'KPI_CONFLICT':e.message==='KPI_RATE_IP'?'Có quá nhiều yêu cầu. Thử lại sau một phút.':e.message==='KPI_RATE_ACCOUNT'?'Thử lại sau 15 phút hoặc liên hệ quản trị.':e.message==='KPI_SESSION_EXPIRED'?'Phiên không còn hợp lệ. Đăng nhập lại.':'Cơ sở dữ liệu chưa xử lý được yêu cầu.');}const text=await r.text();return text?JSON.parse(text):null;}
 const rpc=(name:string,args:unknown)=>db('rpc/'+name,{method:'POST',body:JSON.stringify(args)});
 async function credential(email:string){return (await db('kpi_credentials?email=eq.'+encodeURIComponent(email)+'&select=*'))[0];}
 async function legacyVerify(email:string,digest:string){
@@ -25,10 +25,11 @@ async function login(p:any,ip:string){
  const email=String(p.email||'').trim().toLowerCase(),digest=String(p.digest||'');if(!/^[a-f0-9]{64}$/.test(digest)||email.length>254)throw Error('Thông tin đăng nhập không hợp lệ.');
  const accountKey='login:'+await sha(email),ipKey='ip:'+await sha(ip)+':'+(parseInt((await sha(email)).slice(0,2),16)%16);
  let c=await rpc('kpi_login_prepare',{person_email:email,account_key:accountKey,ip_key:ipKey});if(!c)throw Error('Email hoặc mật khẩu không chính xác.');
+ if(c.must_change_password&&(!c.temporary_expires_at||Date.parse(c.temporary_expires_at)<=Date.now()))throw Error('Mật khẩu tạm đã hết hạn. Liên hệ quản trị viên.');
  if(c.bridge){await legacyVerify(email,digest);const salt=crypto.randomUUID();const hash=await derive(digest,salt);const changed=await rpc('kpi_password_update',{person_email:email,expected_version:c.version,new_salt:salt,new_hash:hash,new_iterations:600000,old_bridge:true});c=await credential(email);if(!changed&&!equal(await derive(digest,c.salt,c.iterations),c.password_hash))throw Error('Mật khẩu vừa thay đổi. Đăng nhập lại.');}
  else if(!equal(await derive(digest,c.salt,c.iterations),c.password_hash))throw Error('Email hoặc mật khẩu không chính xác.');
  const token=crypto.randomUUID()+crypto.randomUUID();const snapshot=await rpc('kpi_login_complete',{person_email:email,expected_version:c.version,new_token_hash:await sha(token),account_key:accountKey});
- const domain=createDomain({...snapshot,actor:email,sessionToken:token});const overview=domain.dispatch('overview',{},token);fileUrl(overview);return {token,user:overview.user,overview};
+ const domain=createDomain({...snapshot,actor:email,sessionToken:token});const overview=domain.dispatch('overview',{},token);fileUrl(overview);overview.account={isAdmin:!!c.is_admin,mustChange:!!c.must_change_password};if(c.must_change_password)return {token,user:overview.user,account:overview.account};return {token,user:overview.user,overview,account:overview.account};
 }
 async function authenticate(token:string){if(!/^[a-f0-9-]{72}$/.test(token))throw Error('Phiên đã hết hạn. Đăng nhập lại.');return rpc('kpi_authenticated_snapshot',{session_hash:await sha(token)});}
 const MIMES:any={'application/pdf':'.pdf','application/msword':'.doc','application/vnd.openxmlformats-officedocument.wordprocessingml.document':'.docx','application/vnd.ms-excel':'.xls','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'.xlsx','image/png':'.png','image/jpeg':'.jpg','image/webp':'.webp'};
@@ -59,6 +60,15 @@ export async function handle(req:Request){
  const raw=await req.text();if(raw.length>15000000)throw Error('Yêu cầu quá lớn.');const {action,payload={}}=JSON.parse(raw);if(typeof action!=='string')throw Error('Thao tác không hợp lệ.');
  if(action==='kpiPublic')return respond({ok:true,data:createDomain({...await rpc('kpi_snapshot',{only_public:true})}).publicData()});
  const token=req.headers.get('x-kpi-token')||'';
+ if(action==='recoverAccount'){
+ const email=String(payload.email||'').trim().toLowerCase(),code=String(payload.code||'');
+ if(!/^[a-f0-9-]{72}$/.test(code)||!/^[a-f0-9]{64}$/.test(payload.newDigest)||!Number.isInteger(payload.length)||payload.length<10)throw Error('Mã khôi phục hoặc mật khẩu mới không hợp lệ.');
+ if(!await rpc('kpi_rate_hit',{rate_key:'recovery-ip:'+await sha(req.headers.get('x-forwarded-for')||'unknown'),max_count:8,seconds:900}))throw Error('Thử lại sau 15 phút.');
+ const c=await credential(email);if(!c)throw Error('Mã khôi phục không hợp lệ.');const salt=crypto.randomUUID();
+ if(!await rpc('kpi_reset_account',{session_hash:'',person_email:email,expected_version:c.version,new_salt:salt,new_hash:await derive(payload.newDigest,salt),reason:'Khôi phục bằng mã chủ dự án',recovery_hash:await sha(code)}))throw Error('Tài khoản vừa thay đổi. Tạo mã khôi phục mới.');
+ return respond({ok:true,data:{ok:true}});
+ }
+
  if(action==='login'){return respond({ok:true,data:await login(payload,req.headers.get('x-forwarded-for')||'unknown')});}
  const snapshot=await authenticate(token),c=snapshot.credential;
  if(action==='logout'){await db('kpi_sessions?token_hash=eq.'+await sha(token),{method:'DELETE'});return respond({ok:true,data:{ok:true}});}
@@ -66,6 +76,18 @@ export async function handle(req:Request){
  if(!/^[a-f0-9]{64}$/.test(String(payload.newDigest))||!Number.isInteger(payload.length)||payload.length<10||payload.newDigest===payload.oldDigest)throw Error('Mật khẩu mới ít nhất 10 ký tự và khác mật khẩu cũ.');
  if(!equal(await derive(String(payload.oldDigest),c.salt,c.iterations),c.password_hash))throw Error('Mật khẩu hiện tại không đúng.');const salt=crypto.randomUUID();if(!await rpc('kpi_password_update',{person_email:c.email,expected_version:c.version,new_salt:salt,new_hash:await derive(payload.newDigest,salt),new_iterations:600000,old_bridge:false}))throw Error('Mật khẩu vừa thay đổi. Đăng nhập lại.');return respond({ok:true,data:{ok:true,relogin:true}});
  }
+ if(c.must_change_password)throw Error('Cần đổi mật khẩu tạm trước khi sử dụng app.');
+ if(action==='adminAccounts')return respond({ok:true,data:await rpc('kpi_admin_accounts',{session_hash:await sha(token)})});
+ if(action==='adminResetPassword'){
+ if(!c.is_admin)throw Error('Không có quyền quản trị tài khoản.');
+ const email=String(payload.email||'').trim().toLowerCase();if(email===c.email)throw Error('Dùng Đổi mật khẩu cho tài khoản của mình.');
+ if(!Number.isInteger(payload.version)||String(payload.reason||'').trim().length<5||String(payload.reason).length>500)throw Error('Cần lý do đặt lại (5–500 ký tự).');
+ if(!await rpc('kpi_rate_hit',{rate_key:'admin-reset:'+c.email,max_count:20,seconds:60}))throw Error('Quá nhiều lượt đặt lại. Thử lại sau một phút.');
+ const temporaryPassword='Kpi!'+crypto.randomUUID().replaceAll('-','').slice(0,16),salt=crypto.randomUUID();
+ if(!await rpc('kpi_reset_account',{session_hash:await sha(token),person_email:email,expected_version:payload.version,new_salt:salt,new_hash:await derive(await sha(temporaryPassword),salt),reason:String(payload.reason).trim(),recovery_hash:''}))throw Error('Tài khoản vừa thay đổi. Tải lại danh sách.');
+ return respond({ok:true,data:{temporaryPassword,expiresHours:24}});
+ }
+ if(action==='overview'){const result=await run(action,payload,token,c.email,snapshot);result.account={isAdmin:!!c.is_admin,mustChange:false};return respond({ok:true,data:result});}
  if(action==='evidenceUrl')return respond({ok:true,data:await evidence(payload,token,c.email)});
  return respond({ok:true,data:await run(action,payload,token,c.email,snapshot)});
  }catch(e){return respond({ok:false,error:(e as Error).message||'Không xử lý được yêu cầu.'},400);}
