@@ -939,7 +939,7 @@ const API_URL=DEFAULT_API_URL;
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=v=>v===null||v===undefined?'Chưa đủ dữ liệu':Number(v).toLocaleString('vi-VN',{maximumFractionDigits:2});
-const state={user:null,token:'',catalog:JSON.parse($('#catalogData').textContent),config:{period:'2026-2027',schoolRule:'DỰ THẢO – tham khảo nguồn TP.HCM quý III/2026; chờ quy chế nhà trường áp dụng tại Đồng Nai',bonusMode:'source'},tasks:[],general:[],bonuses:[],ranking:[],people:[],summary:null,manager:null,selected:null,connected:false};
+const state={user:null,token:'',catalog:JSON.parse($('#catalogData').textContent),config:{period:'2026-2027',schoolRule:'DỰ THẢO của Trường THPT Lộc Ninh; chờ quy chế nhà trường áp dụng',bonusMode:'source'},tasks:[],general:[],bonuses:[],ranking:[],people:[],summary:null,manager:null,selected:null,connected:false};
 const labels={GVBM:'Giáo viên bộ môn',GVCN:'Giáo viên chủ nhiệm',TTCM:'Tổ trưởng chuyên môn',TPCM:'Tổ phó chuyên môn',HOANHAP:'Hỗ trợ học sinh hòa nhập',HT:'Hiệu trưởng',PHT:'Phó Hiệu trưởng'};
 const generalLabels=['Phẩm chất chính trị, đạo đức, lối sống','Ý thức tổ chức kỷ luật','Thực hiện quy chế, tự phê bình và phê bình','Trách nhiệm nêu gương','Đoàn kết nội bộ, phối hợp công tác','Đổi mới sáng tạo, tinh thần cống hiến'];
 function toast(msg,bad=false){$('#toast').textContent=msg;$('#toast').className='toast show'+(bad?' bad':'');clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').className='toast',6000);}
