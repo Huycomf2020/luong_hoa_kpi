@@ -5,6 +5,8 @@ function createDomain(options){
 const Date=options.clock||globalThis.Date;
 const {tables,headers,actor='',sessionToken='',cacheValues={},prepareFile=()=>{throw Error('Chưa có bộ lưu minh chứng')}}=options;
 const writes=new Map(),cacheWrites=new Map(),cache=new Map(Object.entries(cacheValues));
+// Local request fingerprint only; not used to authenticate or protect passwords.
+function demoFingerprintBytes(value){const out=[];for(let j=0;j<8;j++){let h=2166136261;for(const c of String(value)+'|'+j){h=Math.imul(h^c.charCodeAt(0),16777619)>>>0;}out.push((h>>>24)&255,(h>>>16)&255,(h>>>8)&255,h&255);}return out;}
 const Utilities={getUuid:()=>crypto.randomUUID(),DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(_,s)=>demoFingerprintBytes(s),computeHmacSha256Signature:()=>{throw Error('Chỉ mô phỏng tài khoản demo');},formatDate:d=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(d)};
 const CacheService={getScriptCache:()=>({get:k=>cache.get(k),put:(k,v,ttl)=>{cache.set(k,v);cacheWrites.set(k,{key:k,value:v,ttl});},remove:k=>{cache.delete(k);cacheWrites.set(k,{key:k,remove:true});}})};
 /* Shared arithmetic. Ratios are percentage integers, difficulty is a multiplier. */
