@@ -3,7 +3,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');
 const html=fs.readFileSync(__dirname+'/../index.html','utf8');
 const staticHtml=html.replace(/<script(?:\s[^>]*)?>[\s\S]*?<\/script>/g,'');
 const ids=[...staticHtml.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);assert.equal(ids.length,new Set(ids).size,'No duplicate static IDs');
-const catalog=JSON.parse(html.match(/<script id="catalogData" type="application\/json">([\s\S]*?)<\/script>/)[1]);assert.equal(catalog.length,59);
+const catalog=JSON.parse(html.match(/<script id="catalogData" type="application\/json">([\s\S]*?)<\/script>/)[1]);assert.equal(catalog.length,233);
 for(const m of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g))if(!m[0].includes('application/json'))new vm.Script(m[1]);
 assert.ok(!html.includes('kpi_apps_script_url'));assert.ok(!ids.includes('openConnection'));assert.ok(!html.includes('luonghoa.html'));
 const errors=[],virtualConsole=new VirtualConsole();virtualConsole.on('jsdomError',e=>errors.push(e.message));

@@ -19,3 +19,6 @@ Object.assign(DEMO_HEADERS,{
  kpi_yeu_cau:['id','actor','action','fingerprint','result','at']
 });
 DEMO_HEADERS.gvcnv=["Họ và tên","Email","Tổ","Môn","Chức vụ","Vai trò KPI","Lớp chủ nhiệm","Hòa nhập","Nhóm nhiệm vụ tương đồng","Phiên bản mật khẩu"];
+
+DEMO_HEADERS.bang_luong_hoa_kpi.push("mandatory","periodic");
+DEMO_HEADERS.kpi_thuong_chuyen_ky=["id", "email", "sourcePeriod", "targetPeriod", "examYear", "assessmentYear", "taskId", "category", "reference", "requested", "approved", "status", "version", "at", "reviewer", "reviewNote"];

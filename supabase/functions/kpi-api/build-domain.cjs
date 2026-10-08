@@ -1,3 +1,4 @@
+throw Error('Miền nghiệp vụ 3.2 có nhiệm vụ bắt buộc và phân quyền văn phòng. Không tái tạo từ Code.gs 3.1; chỉnh domain.js và chạy npm test.');
 const fs=require('fs');
 const code=fs.readFileSync('kpi-v2/Code.gs','utf8').replace("const KPI_VERSION='2.0.0-2026.10.06';","const KPI_VERSION='3.0.0-supabase';").replace(/\{key:'driveFolderId',value:'[^']*'\}/g,"{key:'driveFolderId',value:''}").replaceAll('config:kpiCfg_()','config:kpiClientCfg_()');
 const adapter=`

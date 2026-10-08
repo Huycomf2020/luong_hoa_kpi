@@ -38,7 +38,7 @@ function fileUrl(o:any){if(!o||typeof o!=='object')return;if(o.fileId){if(String
 async function run(action:string,p:any,token:string,actor:string,initial:any=null){
  for(let attempt=0;attempt<3;attempt++){
  const snapshot=attempt===0&&initial?initial:await authenticate(token);
- let cacheValues={};if(action==='bulkCommit'&&typeof p.previewId==='string'){const key='kpi-preview-'+p.previewId;const row=(await db('kpi_cache?key=eq.'+encodeURIComponent(key)+'&expires_at=gt.'+encodeURIComponent(new Date().toISOString())+'&select=value'))[0];if(row)cacheValues={[key]:row.value};}
+ let cacheValues={};if(['bulkCommit','unitBulkCommit'].includes(action)&&typeof p.previewId==='string'){const key=(action==='unitBulkCommit'?'kpi-unit-preview-':'kpi-preview-')+p.previewId;const row=(await db('kpi_cache?key=eq.'+encodeURIComponent(key)+'&expires_at=gt.'+encodeURIComponent(new Date().toISOString())+'&select=value'))[0];if(row)cacheValues={[key]:row.value};}
  let staged:any=null;
  const domain=createDomain({tables:snapshot.tables,headers:snapshot.headers,actor,sessionToken:token,cacheValues,prepareFile:(f:any,u:any,t:any)=>{if(!MIMES[f.mimeType]||typeof f.base64!=='string'||f.base64.length>14000000)throw Error('Minh chứng không hợp lệ hoặc vượt 10 MB.');const bytes=Uint8Array.from(atob(f.base64),c=>c.charCodeAt(0));if(bytes.length>10485760)throw Error('Tệp vượt 10 MB.');const name=[u.name,u.unit,t.title].join('_').replace(/[\\/:*?"<>|\r\n]/g,'_').slice(0,190)+MIMES[f.mimeType];staged={bytes,mime:f.mimeType,name,path:awaitlessPath(actor,name)};return {fileId:'sb:'+staged.path,fileName:name};}});
  let result=domain.dispatch(action,p,token);const writes=domain.writes(),caches=domain.cacheWrites();
@@ -93,3 +93,4 @@ export async function handle(req:Request){
  }catch(e){return respond({ok:false,error:(e as Error).message||'Không xử lý được yêu cầu.'},400);}
 }
 Deno.serve(handle);
+
