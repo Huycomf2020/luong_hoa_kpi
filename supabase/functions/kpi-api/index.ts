@@ -1,3 +1,4 @@
+import {mirrorSnapshot,buildMirrorScript} from './mirror.js';
 import {createDomain} from './domain.js';
 const BASE=Deno.env.get('SUPABASE_URL')!;
 const secrets=JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')||'{}');
@@ -51,13 +52,23 @@ async function run(action:string,p:any,token:string,actor:string,initial:any=nul
 function awaitlessPath(actor:string,name:string){return actor+'/'+crypto.randomUUID()+'/'+name;}
 async function evidence(p:any,token:string,actor:string){const s=await rpc('kpi_snapshot',{only_public:false});const domain=createDomain({tables:s.tables,headers:s.headers,actor,sessionToken:token});const user=domain.people().find((u:any)=>u.email===actor);const rows=[...(s.tables.kpi_cong_viec||[]),...(s.tables.kpi_dot||[])];const row=rows.find((r:any)=>r.fileId===p.fileId);if(!row)throw Error('Không có minh chứng này.');if(row.email!==actor){try{domain.dispatch('profile',{email:row.email},token);}catch{const w=domain.dispatch('workspace',{focusTaskId:row.taskId||row.id},token);if(!w.tasks.some((t:any)=>t.id===row.id||t.occurrences?.some((o:any)=>o.id===row.id)))throw Error('Không có quyền xem minh chứng.');}}
  if(!String(row.fileId).startsWith('sb:'))return {url:'https://drive.google.com/file/d/'+encodeURIComponent(row.fileId)+'/view'};const r=await storage('object/sign/kpi-evidence/'+row.fileId.slice(3).split('/').map(encodeURIComponent).join('/'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expiresIn:300})});return {url:BASE+'/storage/v1'+r.signedURL};}
+async function mirrorSetting(key:string){return (await db('kpi_runtime_settings?key=eq.'+encodeURIComponent(key)+'&select=value'))[0]?.value;}
+async function saveMirrorSetting(key:string,value:any){await db('kpi_runtime_settings?on_conflict=key',{method:'POST',headers:{Prefer:'resolution=merge-duplicates'},body:JSON.stringify({key,value:JSON.stringify(value)})});}
+async function verifyMirror(req:Request){const token=req.headers.get('x-kpi-mirror-key')||'';if(!/^[a-f0-9-]{72}$/.test(token))throw Error('Không có quyền đồng bộ.');const setting=JSON.parse(await mirrorSetting('sheet_mirror_key')||'null');if(!setting||Date.parse(setting.expiresAt)<=Date.now()||!equal(await sha(token),setting.hash))throw Error('Khóa đồng bộ không hợp lệ hoặc đã hết hạn.');return setting;}
 export async function handle(req:Request){
- const origin=req.headers.get('origin')||'';const cors:any={'Access-Control-Allow-Origin':ORIGINS.has(origin)?origin:'https://huycomf2020.github.io','Vary':'Origin','Access-Control-Allow-Headers':'authorization,apikey,content-type,x-kpi-token,x-region','Access-Control-Allow-Methods':'POST,OPTIONS','Access-Control-Max-Age':'3600','Cache-Control':'no-store'};
+ const origin=req.headers.get('origin')||'';const cors:any={'Access-Control-Allow-Origin':ORIGINS.has(origin)?origin:'https://huycomf2020.github.io','Vary':'Origin','Access-Control-Allow-Headers':'authorization,apikey,content-type,x-kpi-token,x-kpi-mirror-key,x-region','Access-Control-Allow-Methods':'POST,OPTIONS','Access-Control-Max-Age':'3600','Cache-Control':'no-store'};
  const respond=(o:any,status=200)=>Response.json(o,{status,headers:cors});
  if(req.method==='OPTIONS')return new Response(null,{status:204,headers:cors});
  if(req.method!=='POST'||(origin&&!ORIGINS.has(origin)))return respond({ok:false,error:'Yêu cầu không hợp lệ.'},403);
  try{
  const raw=await req.text();if(raw.length>15000000)throw Error('Yêu cầu quá lớn.');const {action,payload={}}=JSON.parse(raw);if(typeof action!=='string')throw Error('Thao tác không hợp lệ.');
+ if(action==='mirrorSnapshot'||action==='mirrorAck'){
+ const setting=await verifyMirror(req);if(!await rpc('kpi_rate_hit',{rate_key:'sheet-mirror',max_count:80,seconds:3600}))throw Error('Đồng bộ quá thường xuyên.');
+ const state=(await db('kpi_state?id=eq.true&select=revision,source_id'))[0];if(state.source_id!==setting.spreadsheetId)throw Error('Bảng đích không khớp.');
+ if(action==='mirrorAck'){if(!Number.isSafeInteger(payload.revision)||payload.revision<0||payload.revision>state.revision)throw Error('Phiên bản không hợp lệ.');const prior=JSON.parse(await mirrorSetting('sheet_mirror_status')||'{}');if(!prior.revision||payload.revision>=prior.revision)await saveMirrorSetting('sheet_mirror_status',{revision:payload.revision,at:new Date().toISOString()});return respond({ok:true,data:{ok:true}});}
+ if(payload.revision===state.revision)return respond({ok:true,data:{unchanged:true,revision:state.revision}});
+ return respond({ok:true,data:mirrorSnapshot(await rpc('kpi_snapshot',{only_public:false}),state.source_id)});
+ }
  if(action==='kpiPublic')return respond({ok:true,data:createDomain({...await rpc('kpi_snapshot',{only_public:true})}).publicData()});
  const token=req.headers.get('x-kpi-token')||'';
  if(action==='recoverAccount'){
@@ -77,6 +88,13 @@ export async function handle(req:Request){
  if(!equal(await derive(String(payload.oldDigest),c.salt,c.iterations),c.password_hash))throw Error('Mật khẩu hiện tại không đúng.');const salt=crypto.randomUUID();if(!await rpc('kpi_password_update',{person_email:c.email,expected_version:c.version,new_salt:salt,new_hash:await derive(payload.newDigest,salt),new_iterations:600000,old_bridge:false}))throw Error('Mật khẩu vừa thay đổi. Đăng nhập lại.');return respond({ok:true,data:{ok:true,relogin:true}});
  }
  if(c.must_change_password)throw Error('Cần đổi mật khẩu tạm trước khi sử dụng app.');
+ if(action==='sheetMirrorSetup'||action==='sheetMirrorStatus'){
+ const domain=createDomain({...snapshot,actor:c.email,sessionToken:token}),user=domain.people().find((u:any)=>u.email===c.email);if(!c.is_admin&&!user?.roles.includes('HT'))throw Error('Chỉ HT hoặc quản trị viên được thiết lập đồng bộ.');
+ const state=(await db('kpi_state?id=eq.true&select=revision,source_id'))[0];
+ if(action==='sheetMirrorStatus')return respond({ok:true,data:{source:'Supabase',spreadsheetId:state.source_id,currentRevision:state.revision,mirror:JSON.parse(await mirrorSetting('sheet_mirror_status')||'null')}});
+ const mirrorToken=crypto.randomUUID()+crypto.randomUUID();await saveMirrorSetting('sheet_mirror_key',{hash:await sha(mirrorToken),spreadsheetId:state.source_id,expiresAt:new Date(Date.now()+365*86400000).toISOString(),actor:c.email});
+ const code=buildMirrorScript({endpoint:BASE+'/functions/v1/kpi-api',publicKey:'sb_publishable_DpNcbAwzO1vPzqF7VWHiOw_VPtt9wzb',token:mirrorToken,spreadsheetId:state.source_id});return respond({ok:true,data:{code,spreadsheetId:state.source_id}});
+ }
  if(action==='adminAccounts')return respond({ok:true,data:await rpc('kpi_admin_accounts',{session_hash:await sha(token)})});
  if(action==='adminResetPassword'){
  if(!c.is_admin)throw Error('Không có quyền quản trị tài khoản.');
